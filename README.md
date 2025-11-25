@@ -11,9 +11,3 @@ App estático (HTML + JS) que:
 2. Seção 1: escolha um arquivo → **Calcular SHA-256**.
 3. Seção 2: preencha emissor/nota (opcional) → **Gerar & baixar recibo** (.json).
 4. Seção 3: carregue o **recibo** e o **arquivo** → **Verificar**.
-
-## Observações
-- Isso captura a "essência": hash como prova de integridade e recibo assinável/armazenável.
-- Em produção, você poderia:
-  - Assinar o recibo digitalmente (ex.: ICP-Brasil, WebCrypto) — opcional.
-  - Ancorar o hash num registro público (blockchain ou timestamp authority) — opcional.
