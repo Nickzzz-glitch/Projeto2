@@ -1,4 +1,4 @@
-# Notary Offline — essência da solução (sem blockchain)
+# Aplicação da Prova de Integridade — essência da solução em blockchain
 
 App estático (HTML + JS) que:
 - Calcula **SHA-256** de arquivos **localmente** (sem upload).
