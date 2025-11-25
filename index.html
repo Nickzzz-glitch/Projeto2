@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Notary Offline • Prova de Integridade (sem blockchain)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Notary Offline <span class="badge">sem blockchain</span></h1>
+    <p class="subtitle">Essência da solução: <b>hash local</b> do arquivo, <b>recibo</b> assinável/exportável, e <b>verificação</b> posterior. Tudo 100% offline, sem MetaMask.</p>
+
+    <section class="card">
+      <h2>1) Calcular hash do arquivo</h2>
+      <input type="file" id="fileInput" />
+      <button id="btnHash">Calcular SHA-256</button>
+      <div id="hashOut" class="mono"></div>
+      <div id="hashMeta" class="small"></div>
+      <details style="margin-top:8px">
+        <summary>O que é isso?</summary>
+        <p class="small">Calculamos o SHA-256 localmente no seu navegador. O arquivo não é enviado para lugar algum. Esse hash é a “impressão digital” do arquivo.</p>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>2) Emitir recibo (JSON)</h2>
+      <label>Órgão/Responsável (opcional):</label>
+      <input type="text" id="issuer" placeholder="Ex.: Prefeitura de X / Fiscal Y" />
+      <label>Descrição (opcional):</label>
+      <input type="text" id="note" placeholder="Ex.: Laudo de medição do Marco 1" />
+      <button id="btnReceipt" disabled>Gerar & baixar recibo</button>
+      <div class="small">O recibo contém: algoritmo, hash, nome/tamanho do arquivo, carimbo de data/hora (ISO), emissor e uma ID local.</div>
+    </section>
+
+    <section class="card">
+      <h2>3) Verificar um recibo</h2>
+      <label>Carregar recibo (.json):</label>
+      <input type="file" id="receiptFile" accept=".json,application/json" />
+      <label>Carregar arquivo para checar:</label>
+      <input type="file" id="verifyFile" />
+      <button id="btnVerify">Verificar</button>
+      <div id="verifyOut" class="mono"></div>
+    </section>
+
+    <section class="card">
+      <h2>4) Registro local (este navegador)</h2>
+      <p class="small">Itens salvos no <code>localStorage</code> deste navegador. Não é público, apenas útil para organizar.</p>
+      <div id="registry"></div>
+      <button id="btnClear">Limpar registro local</button>
+    </section>
+
+    <footer>
+      <p class="tiny">Este app não faz upload de arquivos. Tudo acontece no seu dispositivo. © 2025</p>
+    </footer>
+  </main>
+  <script>
+    // Helpers
+    const $ = (id) => document.getElementById(id);
+    const toHex = (buf) => Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    const download = (name, text) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    const nowISO = () => new Date().toISOString();
+    const rid = () => 'rid_' + Math.random().toString(16).slice(2) + Date.now().toString(16);
+
+    let lastHash = null;
+    let lastMeta = null;
+
+    async function sha256File(file){
+      const buf = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', buf);
+      return '0x' + toHex(digest);
+    }
+
+    // 1) Calcular hash
+    $('btnHash').onclick = async () => {
+      try{
+        const f = $('fileInput').files[0];
+        if(!f) throw new Error('Selecione um arquivo.');
+        $('hashOut').textContent = 'Calculando...';
+        const hash = await sha256File(f);
+        lastHash = hash;
+        lastMeta = { name: f.name, size: f.size };
+        $('hashOut').textContent = hash;
+        $('hashMeta').textContent = `Arquivo: ${f.name} • ${f.size} bytes`;
+        $('btnReceipt').disabled = false;
+      }catch(e){
+        $('hashOut').textContent = 'Erro: ' + e.message;
+        $('btnReceipt').disabled = true;
+      }
+    };
+
+    // 2) Emitir recibo
+    $('btnReceipt').onclick = () => {
+      if(!lastHash || !lastMeta){ alert('Calcule o hash primeiro.'); return; }
+      const rec = {
+        id: rid(),
+        algorithm: 'SHA-256',
+        hash: lastHash,
+        fileName: lastMeta.name,
+        fileSize: lastMeta.size,
+        issuedAt: nowISO(),
+        issuer: $('issuer').value || null,
+        note: $('note').value || null
+      };
+      const fname = `recibo_${rec.id}.json`;
+      download(fname, JSON.stringify(rec, null, 2));
+      // salvar no registro local
+      const reg = JSON.parse(localStorage.getItem('notary_offline_registry') || '[]');
+      reg.unshift(rec);
+      localStorage.setItem('notary_offline_registry', JSON.stringify(reg));
+      renderRegistry();
+    };
+
+    // 3) Verificar recibo + arquivo
+    $('btnVerify').onclick = async () => {
+      $('verifyOut').textContent = 'Verificando...';
+      try{
+        const rf = $('receiptFile').files[0];
+        const vf = $('verifyFile').files[0];
+        if(!rf) throw new Error('Selecione o recibo (.json).');
+        if(!vf) throw new Error('Selecione o arquivo a verificar.');
+
+        const recText = await rf.text();
+        let rec;
+        try { rec = JSON.parse(recText); } catch { throw new Error('Recibo inválido (JSON).'); }
+
+        if(!rec.hash || !rec.algorithm){ throw new Error('Recibo não contém hash/algoritmo.'); }
+        const calc = await sha256File(vf);
+
+        const ok = rec.hash.toLowerCase() === calc.toLowerCase();
+        $('verifyOut').innerHTML = ok
+          ? '✅ Arquivo confere com o recibo.<br><br>' + JSON.stringify(rec, null, 2)
+          : '❌ Não confere.<br><br>Hash do arquivo: ' + calc + '<br>Hash do recibo: ' + rec.hash;
+      }catch(e){
+        $('verifyOut').textContent = 'Erro: ' + e.message;
+      }
+    };
+
+    // 4) Registro local
+    function renderRegistry(){
+      const holder = $('registry');
+      const reg = JSON.parse(localStorage.getItem('notary_offline_registry') || '[]');
+      if(!reg.length){ holder.innerHTML = '<div class="small">Sem itens</div>'; return; }
+      holder.innerHTML = reg.map(r => (
+        '<div class="regitem mono">' +
+        (r.issuer ? ('<b>'+r.issuer+'</b> — ') : '') +
+        (r.note ? (r.note + ' — ') : '') +
+        r.fileName + ' • ' + r.fileSize + ' bytes • ' + r.issuedAt + '<br/>' +
+        r.hash +
+        '</div>'
+      )).join('');
+    }
+    $('btnClear').onclick = () => {
+      localStorage.removeItem('notary_offline_registry');
+      renderRegistry();
+    };
+    renderRegistry();
+  </script>
+</body>
+</html>
